@@ -516,6 +516,9 @@ async function main() {
     'user_pref("mail.compose.default_to_paragraph", true);',
     'user_pref("app.update.enabled", false);',
     'user_pref("datareporting.policy.dataSubmissionEnabled", false);',
+    // Without a directory type, Thunderbird never opens the macOS address book,
+    // whose Contacts permission prompt nobody can answer on a CI runner.
+    'user_pref("ldap_2.servers.osx.dirType", -1);',
   ].join("\n"));
 
   const child = spawn(BINARY, [
