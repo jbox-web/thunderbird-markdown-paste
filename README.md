@@ -1,5 +1,9 @@
 # Markdown Paste for Thunderbird
 
+[![CI](https://github.com/jbox-web/thunderbird-markdown-paste/actions/workflows/ci.yml/badge.svg)](https://github.com/jbox-web/thunderbird-markdown-paste/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/jbox-web/thunderbird-markdown-paste)](LICENSE)
+[![Thunderbird 151+](https://img.shields.io/badge/Thunderbird-151%2B-0a84ff)](https://www.thunderbird.net/)
+
 Paste Markdown into a message and get rich text. Written from scratch after
 [thunderbird-markdown-paste-extension](https://github.com/andyesys/thunderbird-markdown-paste-extension),
 whose behaviour it replaces rather than reuses. Requires Thunderbird 151 or later.
