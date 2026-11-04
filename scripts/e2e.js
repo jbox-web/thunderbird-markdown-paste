@@ -516,6 +516,9 @@ async function main() {
     'user_pref("mail.compose.default_to_paragraph", true);',
     'user_pref("app.update.enabled", false);',
     'user_pref("datareporting.policy.dataSubmissionEnabled", false);',
+    ...(process.env.E2E_TRACE
+      ? ['user_pref("marionette.log.level", "Trace");', 'user_pref("remote.log.level", "Trace");']
+      : []),
   ].join("\n"));
 
   const child = spawn(BINARY, [
@@ -523,7 +526,7 @@ async function main() {
   ], { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: "1" } });
   let stderr = "";
   child.stderr.on("data", (chunk) => {
-    stderr = (stderr + chunk).slice(-4000);
+    stderr = (stderr + chunk).slice(-20000);
   });
   child.on("exit", (code, signal) => step(`thunderbird exited: code=${code} signal=${signal}`));
 
