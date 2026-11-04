@@ -15,6 +15,7 @@ const path = require("node:path");
 const ROOT = path.join(__dirname, "..");
 const BINARY = process.env.THUNDERBIRD_BIN ?? "/Applications/Thunderbird.app/Contents/MacOS/thunderbird";
 const PORT = Number(process.env.MARIONETTE_PORT ?? 2929);
+const COMMAND_TIMEOUT = Number(process.env.E2E_COMMAND_TIMEOUT ?? 60000);
 const ACTION_ID = "markdown-paste_nicoladmin_fr-composeAction-toolbarbutton";
 
 class Marionette {
@@ -58,7 +59,12 @@ class Marionette {
     const body = JSON.stringify([0, ++this.#id, name, params]);
     const reply = this.#next();
     this.#socket.write(`${Buffer.byteLength(body)}:${body}`);
-    const [, , error, result] = await reply;
+    // Marionette can stay silent forever: a hung command must fail, and say which.
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${name}: no answer after ${COMMAND_TIMEOUT} ms`)), COMMAND_TIMEOUT);
+    });
+    const [, , error, result] = await Promise.race([reply, timeout]).finally(() => clearTimeout(timer));
     if (error) throw new Error(`${name}: ${error.error}: ${error.message}`);
     return result;
   }
@@ -77,6 +83,7 @@ class Marionette {
   }
 }
 
+const step = (message) => console.log(`--    ${message}`);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const HELPERS = `
@@ -513,13 +520,21 @@ async function main() {
 
   const child = spawn(BINARY, [
     "--headless", "--marionette", "--no-remote", "--new-instance", "--profile", profile,
-  ], { stdio: "ignore", env: { ...process.env, MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: "1" } });
+  ], { stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: "1" } });
+  let stderr = "";
+  child.stderr.on("data", (chunk) => {
+    stderr = (stderr + chunk).slice(-4000);
+  });
+  child.on("exit", (code, signal) => step(`thunderbird exited: code=${code} signal=${signal}`));
 
   const tb = new Marionette();
   let failed = 0;
   try {
+    step("waiting for Marionette");
     await tb.connect();
+    step("connected");
     await tb.send("WebDriver:NewSession", { capabilities: { alwaysMatch: { "moz:accessibilityChecks": false } } });
+    step("session open");
     await tb.send("Marionette:SetContext", { value: "chrome" });
     await tb.send("WebDriver:SetTimeouts", { script: 30000 });
     await tb.run(`${HELPERS}
@@ -529,7 +544,9 @@ async function main() {
       identity.fullName = "Test";
       account.addIdentity(identity);
       account.incomingServer = MailServices.accounts.createIncomingServer("test", "localhost", "none");`);
+    step("account created");
     await tb.send("Addon:Install", { path: process.env.E2E_ADDON ?? ROOT, temporary: !process.env.E2E_ADDON });
+    step("add-on installed");
     await sleep(1000);
 
     const only = process.argv[2];
@@ -545,6 +562,9 @@ async function main() {
       }
     }
     console.log(failed ? `\n${failed} failed` : "\nall passed");
+  } catch (error) {
+    console.error(`thunderbird stderr (tail):\n${stderr}`);
+    throw error;
   } finally {
     tb.close();
     child.kill("SIGKILL");

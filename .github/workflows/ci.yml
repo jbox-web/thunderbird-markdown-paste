@@ -51,3 +51,4 @@ jobs:
           node-version: lts/*
       - run: brew install --cask thunderbird
       - run: npm run e2e
+        timeout-minutes: 10
