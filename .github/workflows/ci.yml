@@ -37,25 +37,8 @@ jobs:
           path: dist/*.xpi
 
   # Undo can only be proven in the real editor: jsdom has none.
+  # Linux only: on GitHub's macOS runners, Marionette never answers NewSession.
   e2e:
-    runs-on: macos-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: lts/*
-      - run: brew install --cask thunderbird
-      - run: npm run e2e
-        timeout-minutes: 10
-        env:
-          E2E_TRACE: "1"
-
-  e2e-linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -78,5 +61,4 @@ jobs:
       - run: npm run e2e
         timeout-minutes: 10
         env:
-          E2E_TRACE: "1"
           THUNDERBIRD_BIN: ${{ runner.temp }}/tb/thunderbird/thunderbird

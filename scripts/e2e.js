@@ -516,9 +516,6 @@ async function main() {
     'user_pref("mail.compose.default_to_paragraph", true);',
     'user_pref("app.update.enabled", false);',
     'user_pref("datareporting.policy.dataSubmissionEnabled", false);',
-    ...(process.env.E2E_TRACE
-      ? ['user_pref("marionette.log.level", "Trace");', 'user_pref("remote.log.level", "Trace");']
-      : []),
   ].join("\n"));
 
   const child = spawn(BINARY, [

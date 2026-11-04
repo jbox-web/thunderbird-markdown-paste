@@ -23,7 +23,7 @@ npm run build                                            # dist/markdown-paste-<
 - `MARIONETTE_PORT`: default 2929. The run refuses to start if the port is already in use, since that could be the user's own instance.
 - `E2E_TMP`: parent directory of the throwaway profile; the default is the system temporary directory.
 
-CI (`.github/workflows/ci.yml`) runs unit tests and the build on Ubuntu, e2e on macOS, and also runs weekly to catch Thunderbird changes without a commit.
+CI (`.github/workflows/ci.yml`) runs unit tests and the build on Ubuntu, e2e on Linux (on GitHub's macOS runners, Marionette never answers `NewSession`), and also runs weekly to catch Thunderbird changes without a commit.
 
 ## Architecture
 
