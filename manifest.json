@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Markdown Paste",
+  "version": "2.0.2",
+  "description": "Paste Markdown into a message as rich text, with native undo.",
+  "homepage_url": "https://github.com/jbox-web/thunderbird-markdown-paste",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "markdown-paste@nicoladmin.fr",
+      "strict_min_version": "151.0"
+    }
+  },
+  "icons": {
+    "48": "icons/icon.svg",
+    "96": "icons/icon.svg"
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "permissions": ["compose"],
+  "compose_scripts": [
+    {
+      "js": [
+        "vendor/marked.umd.js",
+        "vendor/purify.min.js",
+        "vendor/highlight.min.js",
+        "src/render.js",
+        "src/compose.js"
+      ]
+    }
+  ],
+  "compose_action": {
+    "default_title": "Convert the selection or the text around the caret from Markdown",
+    "default_icon": "icons/icon.svg",
+    "default_area": "formattoolbar"
+  },
+  "commands": {
+    "convert-markdown": {
+      "suggested_key": { "default": "Ctrl+Alt+M" },
+      "description": "Convert the selection or the text around the caret from Markdown"
+    }
+  }
+}
