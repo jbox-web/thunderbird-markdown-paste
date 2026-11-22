@@ -14,6 +14,7 @@ node --test --test-name-pattern="detects block Markdown" test/render.test.js   #
 npm run e2e                                              # all scenarios in a headless Thunderbird
 npm run e2e -- "plain-text editor"                       # scenarios whose name contains the string
 npm run build                                            # dist/markdown-paste-<version>.xpi
+npm run release:bump -- 2.1.0                            # set the version, date the Unreleased changelog section
 ```
 
 `npm run e2e` installs the working tree as a temporary add-on, so it needs no build. Environment variables:
@@ -24,6 +25,13 @@ npm run build                                            # dist/markdown-paste-<
 - `E2E_TMP`: parent directory of the throwaway profile; the default is the system temporary directory.
 
 CI (`.github/workflows/ci.yml`) runs unit tests and the build on Ubuntu, e2e on Linux and macOS, and also runs weekly to catch Thunderbird changes without a commit.
+
+## Releasing
+
+1. Entries accumulate under `## [Unreleased]` in `CHANGELOG.md`; feature commits never touch the version.
+2. `npm run release:bump -- X.Y.Z` sets the version in the three files below and turns the Unreleased entries into a dated `## [X.Y.Z]` section; commit that as the release commit.
+3. Create the tag by hand, signed: `git tag -s vX.Y.Z -m "Release X.Y.Z"`, then push it. GitHub cannot sign a tag, so no workflow creates one.
+4. `.github/workflows/release.yml` runs on the tag: it refuses a lightweight or unsigned tag (it checks that a signature is present, not whose it is), `scripts/release.js check` fails fast if the tag, the versions and the changelog disagree, the whole CI runs on the tagged commit, then the GitHub release is created with the XPI that CI built and the changelog section plus the install steps as its text. Only `vX.Y.Z` tags trigger it.
 
 ## Architecture
 
@@ -52,7 +60,7 @@ Everything the extension renders goes through `renderTagged`: a `div` (blocks) o
 ## Keep in sync
 
 - Script list and order: `compose_scripts` in `manifest.json` and `SCRIPTS` in `test/helpers.js`.
-- Version: `manifest.json` (read by `scripts/build.sh`), `package.json` and `package-lock.json`.
+- Version: `manifest.json` (read by `scripts/build.sh`), `package.json` and `package-lock.json` (top level and `packages[""]`), plus a `## [X.Y.Z]` section in `CHANGELOG.md` at release time. `scripts/release.js` sets and checks all of them.
 - Add-on id: `manifest.json`, and `ACTION_ID` and the `AddonManager` calls in `scripts/e2e.js`.
 - Source attribute name: `SOURCE_ATTRIBUTE` in `src/render.js` and in `background.js`, which does not load the renderer.
 - Packaged files: the explicit list in `scripts/build.sh`; a new top-level runtime file is not packaged until it is added there.

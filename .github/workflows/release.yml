@@ -1,0 +1,68 @@
+name: Release
+
+# Publishes the GitHub release of a pushed tag. The tag is created and signed by
+# hand (git tag -s vX.Y.Z): GitHub cannot sign it, so this workflow never
+# creates one, refuses a tag that is not annotated and signed, and
+# --verify-tag makes the release fail if the tag is missing.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions: {}
+
+jobs:
+  # Fails before the long CI run when the tag is unsigned, or when the tag, the
+  # three version fields and CHANGELOG.md disagree.
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      # Checks that a signature is there, not who made it.
+      - name: The tag is annotated and signed
+        run: |
+          git fetch --no-tags origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          test "$(git cat-file -t "$GITHUB_REF_NAME")" = tag || { echo "::error::$GITHUB_REF_NAME is a lightweight tag: create it with git tag -s"; exit 1; }
+          git cat-file -p "$GITHUB_REF_NAME" | grep -qE '^-----BEGIN (SSH|PGP) SIGNATURE-----$' || { echo "::error::$GITHUB_REF_NAME is not signed: create it with git tag -s"; exit 1; }
+      - run: node scripts/release.js check "$GITHUB_REF_NAME"
+
+  ci:
+    needs: check
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
+  # Publishes the XPI the CI run built and tested, not a new build. No npm
+  # install and no cache in the one job that holds a write token.
+  release:
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - uses: actions/download-artifact@v8
+        with:
+          name: xpi
+          path: dist
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          node scripts/release.js notes "$version" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" "dist/markdown-paste-$version.xpi" \
+            --verify-tag --title "$version" --notes-file "$RUNNER_TEMP/notes.md"

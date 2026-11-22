@@ -47,6 +47,9 @@ npm run e2e       # real headless Thunderbird on a throwaway profile
 npm run build     # dist/markdown-paste-<version>.xpi
 ```
 
+Releases are published from a signed tag by `.github/workflows/release.yml`,
+with the version's section of [CHANGELOG.md](CHANGELOG.md) as release notes.
+
 `npm run e2e` needs a local Thunderbird (`THUNDERBIRD_BIN` overrides its path)
 and leaves the user's profile alone. Set `E2E_ADDON` to test a built XPI.
 

@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    # Tags run this workflow through release.yml instead.
+    branches: ["**"]
     paths-ignore:
       - "**.md"
   pull_request:
@@ -11,6 +13,8 @@ on:
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch:
+  # release.yml runs the whole CI on the tagged commit before publishing.
+  workflow_call:
 
 permissions: {}
 
