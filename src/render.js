@@ -58,6 +58,9 @@
   // Parsing is quadratic on some inputs and runs on the editor's thread.
   const MAX_MARKDOWN_LENGTH = 50000;
 
+  // Carries the Markdown a rendered block came from, while the message is edited.
+  const SOURCE_ATTRIBUTE = "data-markdown-source";
+
   const BLOCK_ELEMENTS = new Set([
     "BLOCKQUOTE", "H1", "H2", "H3", "H4", "H5", "H6", "HR", "LI", "OL", "P", "PRE",
     "TABLE", "TBODY", "TD", "TH", "THEAD", "TR", "UL",
@@ -223,7 +226,7 @@
     });
   }
 
-  function render(text) {
+  function renderBody(text) {
     const tokens = keepUnusedDefinitions(
       markdown.lexer(text).filter((token) => token.type !== "space"),
       text,
@@ -234,8 +237,27 @@
     const parsed = new DOMParser().parseFromString(clean, "text/html");
     removeBlankTextBetweenBlocks(parsed.body);
     applyInlineStyles(parsed.body);
-    return parsed.body.innerHTML;
+    return { body: parsed.body, inline };
   }
 
-  globalThis.MarkdownPaste = { render, rendersToNothing, looksLikeMarkdown, shouldRenderPaste, MAX_MARKDOWN_LENGTH };
+  function render(text) {
+    return renderBody(text).body.innerHTML;
+  }
+
+  // The rendering inside one element that keeps its Markdown source, so the
+  // toggle can bring the source back. An inline fragment gets a span to stay on
+  // its line, unless block says it replaces whole lines. Trailing newlines
+  // render to nothing, so they are not kept. The background strips the
+  // attribute and the wrapper on send.
+  function renderTagged(text, block = false) {
+    const { body, inline } = renderBody(text);
+    const wrapper = body.ownerDocument.createElement(inline && !block ? "span" : "div");
+    wrapper.setAttribute(SOURCE_ATTRIBUTE, text.replace(/\n+$/, ""));
+    wrapper.append(...body.childNodes);
+    return wrapper.outerHTML;
+  }
+
+  globalThis.MarkdownPaste = {
+    render, renderTagged, rendersToNothing, looksLikeMarkdown, shouldRenderPaste, MAX_MARKDOWN_LENGTH, SOURCE_ATTRIBUTE,
+  };
 })();

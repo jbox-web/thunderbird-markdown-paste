@@ -25,4 +25,4 @@ function parse(window, html) {
   return new window.DOMParser().parseFromString(html, "text/html").body;
 }
 
-module.exports = { ROOT, loadRenderer, parse };
+module.exports = { ROOT, SCRIPTS, loadRenderer, parse };

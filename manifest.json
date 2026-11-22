@@ -30,14 +30,14 @@
     }
   ],
   "compose_action": {
-    "default_title": "Convert the selection or the text around the caret from Markdown",
+    "default_title": "Toggle the message between Markdown and rich text, or convert the selection",
     "default_icon": "icons/icon.svg",
     "default_area": "formattoolbar"
   },
   "commands": {
     "convert-markdown": {
       "suggested_key": { "default": "Ctrl+Alt+M" },
-      "description": "Convert the selection or the text around the caret from Markdown"
+      "description": "Toggle the message between Markdown and rich text, or convert the selection"
     }
   }
 }

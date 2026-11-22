@@ -98,6 +98,8 @@ async function openCompose(tb, { plainText = false, body = "" } = {}) {
     const params = Cc["@mozilla.org/messengercompose/composeparams;1"].createInstance(Ci.nsIMsgComposeParams);
     const fields = Cc["@mozilla.org/messengercompose/composefields;1"].createInstance(Ci.nsIMsgCompFields);
     fields.body = a[1];
+    fields.to = "dest@example.org";
+    fields.subject = "e2e";
     params.type = Ci.nsIMsgCompType.New;
     params.format = a[0] ? Ci.nsIMsgCompFormat.PlainText : Ci.nsIMsgCompFormat.HTML;
     params.composeFields = fields;
@@ -149,8 +151,85 @@ const bodyHtml = (tb) => tb.run(`${HELPERS} return doc().body.innerHTML;`);
 const bodyText = (tb) => tb.run(`${HELPERS} return doc().body.textContent;`);
 const query = (tb, selector) => tb.run(`${HELPERS}
   return doc().querySelector(a[0])?.outerHTML ?? null;`, [selector]);
-const sentHtml = (tb) => tb.run(`${HELPERS}
-  return editorWin().GetCurrentEditor().outputToString("text/html", 2);`);
+
+// A local SMTP server that keeps what it receives: the message is sent for
+// real, through compose.onBeforeSend, and read as the recipient would get it.
+function smtpSink() {
+  const messages = [];
+  const server = net.createServer((socket) => {
+    let data = null;
+    let buffer = "";
+    socket.write("220 sink\r\n");
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString("utf8");
+      for (;;) {
+        if (data !== null) {
+          const end = buffer.indexOf("\r\n.\r\n");
+          if (end < 0) return;
+          // SMTP doubles a leading dot on every line: undo it.
+          messages.push((data + buffer.slice(0, end)).replace(/^\.\./gm, "."));
+          buffer = buffer.slice(end + 5);
+          data = null;
+          socket.write("250 ok\r\n");
+          continue;
+        }
+        const eol = buffer.indexOf("\r\n");
+        if (eol < 0) return;
+        const verb = buffer.slice(0, 4).toUpperCase();
+        buffer = buffer.slice(eol + 2);
+        if (verb === "DATA") {
+          data = "";
+          socket.write("354 go\r\n");
+        } else if (verb === "QUIT") {
+          socket.end("221 bye\r\n");
+          return;
+        } else {
+          socket.write("250 ok\r\n");
+        }
+      }
+    });
+  });
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve({ port: server.address().port, messages, close: () => server.close() }));
+  });
+}
+
+let sink;
+
+// The text/html part of a raw message, transfer encoding undone.
+function htmlPart(message) {
+  const part = message.split(/\r?\n--[^\r\n]+/).find((p) => /^Content-Type: text\/html/im.test(p));
+  if (!part) throw new Error(`no text/html part in:\n${message}`);
+  const [headers, ...rest] = part.split(/\r?\n\r?\n/);
+  const body = rest.join("\n\n");
+  const encoding = /^Content-Transfer-Encoding:\s*(\S+)/im.exec(headers)?.[1].toLowerCase();
+  if (encoding === "base64") return Buffer.from(body.replace(/\s+/g, ""), "base64").toString("utf8");
+  if (encoding === "quoted-printable") {
+    const bytes = body.replace(/=\r?\n/g, "").replace(/=([0-9A-F]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    return Buffer.from(bytes, "latin1").toString("utf8");
+  }
+  return body;
+}
+
+// Sends the open message and returns the HTML the recipient gets. The compose
+// window closes on its own.
+async function sentHtml(tb) {
+  const count = sink.messages.length;
+  await tb.run(`${HELPERS} editorWin().goDoCommand("cmd_sendNow");`);
+  for (let i = 0; i < 80 && sink.messages.length === count; i++) await sleep(250);
+  if (sink.messages.length === count) throw new Error("the message never reached the SMTP sink");
+  await waitFor(tb, `return !Services.wm.getMostRecentWindow("msgcompose");`);
+  return htmlPart(sink.messages.at(-1));
+}
+
+const putBody = async (tb, html) => {
+  await tb.run(`${HELPERS}
+    const d = doc();
+    d.defaultView.focus();
+    d.execCommand("selectAll");
+    d.execCommand("insertHTML", false, a[0]);`, [html]);
+  await sleep(100);
+};
 
 const clickAction = async (tb) => {
   await tb.run(`${HELPERS}
@@ -198,7 +277,6 @@ const scenarios = {
     assert.match(pasted, /<h1[^>]*>Title<\/h1>/);
     assert.match(pasted, /<table/);
     assert.match(await query(tb, "h1"), /font-size/);
-    assert.doesNotMatch(await sentHtml(tb), /# Title/);
     await command(tb, "cmd_undo");
     assert.equal(await bodyHtml(tb), before);
     await command(tb, "cmd_redo");
@@ -216,16 +294,19 @@ const scenarios = {
     await closeCompose(tb);
   },
 
-  async "inline styles reach the HTML that gets sent"(tb) {
+  async "inline styles reach the sent message, the Markdown source does not"(tb) {
     await openCompose(tb);
     await setClipboard(tb, { "text/plain": MD });
     await command(tb, "cmd_paste");
+    await setClipboard(tb, { "text/plain": " and **inline**" });
+    await command(tb, "cmd_paste");
+    assert.match(await bodyHtml(tb), /data-markdown-source/);
     const sent = await sentHtml(tb);
     assert.match(sent, /<h1[^>]*style="[^"]*font-size/);
     assert.match(sent, /<td[^>]*style="[^"]*border/);
     assert.match(sent, /<span[^>]*style="[^"]*color[^"]*"[^>]*>const<\/span>/);
-    assert.doesNotMatch(sent, /markdown-paste|data-markdown|class="hljs/);
-    await closeCompose(tb);
+    assert.match(sent, /<strong>inline<\/strong>/);
+    assert.doesNotMatch(sent, /markdown-paste|data-markdown|class="hljs|# Title|```|\*\*inline/);
   },
 
   async "rich clipboard content keeps its native paste"(tb) {
@@ -273,37 +354,149 @@ const scenarios = {
     await closeCompose(tb);
   },
 
-  async "the button converts the caret's text only, and one undo reverts it"(tb) {
+  async "the toggle renders the whole draft but quote and signature, and one undo reverts it"(tb) {
     const quote = '<blockquote type="cite"><p># old **quote**</p></blockquote>';
     const signature = '<div class="moz-signature">--<br>**Me**</div>';
     await openCompose(tb);
-    await tb.run(`${HELPERS}
-      const d = doc();
-      d.defaultView.focus();
-      d.execCommand("selectAll");
-      d.execCommand("insertHTML", false, a[0]);`, [`${quote}<p id="mine"># Mine</p><p>- item</p><br>${signature}`]);
-    await sleep(100);
+    await putBody(tb, `<p id="mine"># Mine</p><p>- item</p>${quote}<p>**later**</p><br>${signature}`);
     const before = await bodyHtml(tb);
+    const quoteBefore = await query(tb, "blockquote");
+    const signatureBefore = await query(tb, ".moz-signature");
     await putCaret(tb, "#mine");
     await clickAction(tb);
     const after = await bodyHtml(tb);
     assert.match(after, /<h1[^>]*>Mine<\/h1>/);
     assert.match(after, /<li[^>]*>item<\/li>/);
-    assert.match(after, /# old \*\*quote\*\*/);
-    assert.match(after, /\*\*Me\*\*/);
+    assert.match(after, /<strong>later<\/strong>/);
+    assert.equal(await query(tb, "blockquote"), quoteBefore);
+    assert.equal(await query(tb, ".moz-signature"), signatureBefore);
     await command(tb, "cmd_undo");
     assert.equal(await bodyHtml(tb), before);
     await closeCompose(tb);
   },
 
-  async "the button does nothing inside a quote"(tb) {
+  async "the toggle brings back the exact Markdown, then renders it again"(tb) {
+    await openCompose(tb);
+    await putBody(tb, '<p># Title</p><p><br></p><p>- one</p><p>&nbsp;&nbsp;- nested</p><p><br></p><p>a &lt;b&gt; &amp; **c**</p>' +
+      '<blockquote type="cite"><p>q</p></blockquote><p>**solo**</p>');
+    const typed = await bodyHtml(tb);
+    await clickAction(tb);
+    const rendered = await bodyHtml(tb);
+    assert.match(rendered, /<h1[^>]*>Title<\/h1>/);
+    assert.match(rendered, /<li[^>]*>nested<\/li>/);
+    assert.match(rendered, /<div data-markdown-source="\*\*solo\*\*"><strong>solo<\/strong><\/div>/);
+    await clickAction(tb);
+    assert.equal(await bodyHtml(tb), typed);
+    await clickAction(tb);
+    assert.equal(await bodyHtml(tb), rendered);
+    await command(tb, "cmd_undo");
+    assert.equal(await bodyHtml(tb), typed);
+    await closeCompose(tb);
+  },
+
+  async "a rendered paste comes back to Markdown with the toggle"(tb) {
+    await openCompose(tb);
+    await setClipboard(tb, { "text/plain": MD });
+    await command(tb, "cmd_paste");
+    assert.match(await query(tb, "h1"), /Title/);
+    await clickAction(tb);
+    assert.equal(await query(tb, "h1"), null);
+    const text = await tb.run(`${HELPERS} return [...doc().body.querySelectorAll("p")].map((p) => p.textContent).join("\\n");`);
+    // The last line is the empty paragraph a new message starts with.
+    assert.equal(text.replace(/\u00a0/g, " "), `${MD}\n`);
+    await closeCompose(tb);
+  },
+
+  async "a rendered block edited afterwards comes back to its source"(tb) {
+    await openCompose(tb);
+    await setClipboard(tb, { "text/plain": "# Title" });
+    await command(tb, "cmd_paste");
+    await tb.run(`${HELPERS}
+      const d = doc();
+      const h1 = d.querySelector("h1");
+      d.defaultView.getSelection().collapse(h1.firstChild, h1.firstChild.length);
+      d.execCommand("insertText", false, "X");`);
+    assert.match(await query(tb, "h1"), /TitleX/);
+    await clickAction(tb);
+    assert.equal(await query(tb, "h1"), null);
+    assert.match(await bodyText(tb), /# Title/);
+    assert.doesNotMatch(await bodyText(tb), /TitleX/);
+    await command(tb, "cmd_undo");
+    assert.match(await query(tb, "h1"), /TitleX/);
+    await closeCompose(tb);
+  },
+
+  async "in br mode the toggle brings back the exact lines"(tb) {
+    await tb.run(`Services.prefs.setBoolPref("mail.compose.default_to_paragraph", false);`);
+    try {
+      await openCompose(tb);
+      await tb.run(`${HELPERS}
+        const d = doc();
+        d.defaultView.focus();
+        for (const [i, line] of ["# Title", "- one", "", "after **b**"].entries()) {
+          if (i > 0) d.execCommand("insertParagraph");
+          if (line) d.execCommand("insertText", false, line);
+        }`);
+      const typed = await bodyHtml(tb);
+      assert.doesNotMatch(typed, /<p\b/);
+      await clickAction(tb);
+      assert.match(await bodyHtml(tb), /<h1[^>]*>Title<\/h1>/);
+      await clickAction(tb);
+      assert.equal(await bodyHtml(tb), typed);
+      await closeCompose(tb);
+    } finally {
+      await tb.run(`Services.prefs.setBoolPref("mail.compose.default_to_paragraph", true);`);
+    }
+  },
+
+  async "a rendered fragment split by Enter comes back once"(tb) {
     await openCompose(tb);
     await tb.run(`${HELPERS}
       const d = doc();
       d.defaultView.focus();
-      d.execCommand("selectAll");
-      d.execCommand("insertHTML", false, a[0]);`, ['<blockquote id="q" type="cite"># old</blockquote><p>mine</p>']);
-    await sleep(100);
+      d.execCommand("insertText", false, "Hello ");`);
+    await setClipboard(tb, { "text/plain": "some **bold** word" });
+    await command(tb, "cmd_paste");
+    await tb.run(`${HELPERS}
+      const d = doc();
+      const strong = d.querySelector("strong");
+      d.defaultView.getSelection().collapse(strong.firstChild, 2);
+      d.execCommand("insertParagraph");`);
+    assert.equal((await bodyHtml(tb)).match(/data-markdown-source/g).length, 2);
+    await clickAction(tb);
+    const text = await bodyText(tb);
+    assert.equal(text.match(/some \*\*bold\*\* word/g)?.length, 1);
+    await closeCompose(tb);
+  },
+
+  async "a failed send gives the toggle its sources back"(tb) {
+    await openCompose(tb);
+    await setClipboard(tb, { "text/plain": "# Title\n\n- one" });
+    await command(tb, "cmd_paste");
+    const windowsBefore = await tb.run(`return [...Services.wm.getEnumerator(null)].length;`);
+    await tb.run(`${HELPERS}
+      const identity = MailServices.accounts.allIdentities[0];
+      MailServices.outgoingServer.getServerByKey(identity.smtpServerKey).QueryInterface(Ci.nsISmtpServer).port = 1;
+      editorWin().goDoCommand("cmd_sendNow");`);
+    try {
+      await waitFor(tb, `return [...Services.wm.getEnumerator(null)].length > ${windowsBefore};`);
+      // The send error dialog.
+      await tb.run(`[...Services.wm.getEnumerator(null)].slice(a[0]).forEach((w) => w.close());`, [windowsBefore]);
+      await waitFor(tb, `${HELPERS} return doc().body.innerHTML.includes("data-markdown-source");`);
+      await clickAction(tb);
+      assert.equal(await query(tb, "h1"), null);
+      assert.match(await bodyText(tb), /# Title/);
+    } finally {
+      await tb.run(`${HELPERS}
+        const identity = MailServices.accounts.allIdentities[0];
+        MailServices.outgoingServer.getServerByKey(identity.smtpServerKey).QueryInterface(Ci.nsISmtpServer).port = a[0];`, [sink.port]);
+    }
+    await closeCompose(tb);
+  },
+
+  async "the toggle leaves a draft without plain text alone"(tb) {
+    await openCompose(tb);
+    await putBody(tb, '<blockquote id="q" type="cite"># old</blockquote><div class="moz-signature">-- <br>**Me**</div>');
     const before = await bodyHtml(tb);
     await putCaret(tb, "#q");
     await clickAction(tb);
@@ -379,7 +572,7 @@ const scenarios = {
     await setClipboard(tb, { "text/plain": "some **bold** word" });
     await command(tb, "cmd_paste");
     const after = await bodyHtml(tb);
-    assert.match(after, /Hello\s*(&nbsp;)?\s*some <strong>bold<\/strong> word/);
+    assert.match(after, /Hello\s*(&nbsp;)?\s*<span data-markdown-source="some \*\*bold\*\* word">some <strong>bold<\/strong> word<\/span>/);
     assert.equal((after.match(/<(p|div|h1)\b/g) ?? []).length, (before.match(/<(p|div|h1)\b/g) ?? []).length);
     await command(tb, "cmd_undo");
     assert.equal(await bodyHtml(tb), before);
@@ -547,6 +740,17 @@ async function main() {
       identity.fullName = "Test";
       account.addIdentity(identity);
       account.incomingServer = MailServices.accounts.createIncomingServer("test", "localhost", "none");`);
+    sink = await smtpSink();
+    await tb.run(`${HELPERS}
+      const smtp = MailServices.outgoingServer.createServer("smtp").QueryInterface(Ci.nsISmtpServer);
+      smtp.hostname = "127.0.0.1";
+      smtp.port = a[0];
+      smtp.authMethod = Ci.nsMsgAuthMethod.none;
+      smtp.socketType = Ci.nsMsgSocketType.plain;
+      const identity = MailServices.accounts.allIdentities[0];
+      identity.smtpServerKey = smtp.key;
+      // No Sent folder to copy to on a throwaway profile.
+      identity.doFcc = false;`, [sink.port]);
     step("account created");
     await tb.send("Addon:Install", { path: process.env.E2E_ADDON ?? ROOT, temporary: !process.env.E2E_ADDON });
     step("add-on installed");
@@ -570,6 +774,7 @@ async function main() {
     throw error;
   } finally {
     tb.close();
+    sink?.close();
     child.kill("SIGKILL");
     fs.rmSync(profile, { recursive: true, force: true });
   }

@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { loadRenderer, parse } = require("./helpers");
 
 const window = loadRenderer();
-const { render, looksLikeMarkdown, shouldRenderPaste } = window.MarkdownPaste;
+const { render, renderTagged, looksLikeMarkdown, shouldRenderPaste } = window.MarkdownPaste;
 
 test("detects block Markdown", () => {
   for (const text of [
@@ -216,4 +216,46 @@ test("oversized input is never parsed", () => {
   const started = Date.now();
   assert.equal(looksLikeMarkdown("*a".repeat(200000)), false);
   assert.ok(Date.now() - started < 200);
+});
+
+test("tagged blocks sit in one div that keeps the exact source", () => {
+  const body = parse(window, renderTagged("# Title\n\n- one\n- two"));
+  assert.equal(body.children.length, 1);
+  const wrapper = body.firstElementChild;
+  assert.equal(wrapper.tagName, "DIV");
+  assert.deepEqual(wrapper.getAttributeNames(), ["data-markdown-source"]);
+  assert.equal(wrapper.getAttribute("data-markdown-source"), "# Title\n\n- one\n- two");
+  assert.equal(wrapper.querySelector("h1").textContent, "Title");
+  assert.equal(wrapper.querySelectorAll("li").length, 2);
+});
+
+test("a tagged inline fragment sits in one span, so it stays on its line", () => {
+  const body = parse(window, renderTagged("some **bold** word"));
+  assert.equal(body.children.length, 1);
+  const wrapper = body.firstElementChild;
+  assert.equal(wrapper.tagName, "SPAN");
+  assert.equal(wrapper.getAttribute("data-markdown-source"), "some **bold** word");
+  assert.equal(wrapper.innerHTML, "some <strong>bold</strong> word");
+});
+
+test("the tagged source survives quotes, markup and line breaks", () => {
+  const text = 'say "hi" & <b>x</b> **now**\nnext line';
+  const body = parse(window, renderTagged(text));
+  assert.equal(body.firstElementChild.getAttribute("data-markdown-source"), text);
+  assert.equal(body.querySelector("b"), null);
+});
+
+test("a tagged run rendered as a whole block stays a block, even on one line", () => {
+  const body = parse(window, renderTagged("**later**", true));
+  const wrapper = body.firstElementChild;
+  assert.equal(wrapper.tagName, "DIV");
+  assert.equal(wrapper.getAttribute("data-markdown-source"), "**later**");
+  assert.equal(wrapper.innerHTML, "<strong>later</strong>");
+});
+
+test("the tagged source drops the trailing newlines nobody sees", () => {
+  const inline = parse(window, renderTagged("some **bold** word\n\n"));
+  assert.equal(inline.firstElementChild.getAttribute("data-markdown-source"), "some **bold** word");
+  const block = parse(window, renderTagged("# T\n"));
+  assert.equal(block.firstElementChild.getAttribute("data-markdown-source"), "# T");
 });

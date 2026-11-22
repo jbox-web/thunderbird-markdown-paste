@@ -12,16 +12,23 @@ whose behaviour it replaces rather than reuses. Requires Thunderbird 151 or late
 
 - **Paste**: text that looks like Markdown is rendered. Rich content, images and
   ordinary text keep Thunderbird's native paste.
-- **Undo**: one paste or one conversion is one undo step, through the editor's
-  own undo stack.
+- **Undo**: one paste, one conversion or one toggle is one undo step, through
+  the editor's own undo stack.
 - **Paste raw**: Ctrl+Shift+V (Cmd+Shift+V on macOS) never renders.
-- **Convert** (toolbar button, Ctrl+Alt+M, Cmd+Alt+M on macOS): converts the
-  selection or, without one, the plain text around the caret. Quotes, signatures
-  and formatted content are never converted: a selection containing any is left
-  as it is.
+- **Toggle** (toolbar button, Ctrl+Alt+M, Cmd+Alt+M on macOS), without a
+  selection: switches the whole message between Markdown and rich text. If the
+  message holds rendered Markdown, all of it goes back to its Markdown source;
+  otherwise all its plain text is rendered. Rendered Markdown edited afterwards
+  goes back to its source too, without the edit: undo brings the edit back.
+- **Convert** (same button and shortcut) with a selection: renders just the
+  selection.
+- Quotes, signatures and formatted content are never converted: a selection
+  containing any is left as it is, and the toggle goes around them.
 - **Raw HTML** in the Markdown is shown as text, never interpreted.
 - **Sent message**: styles are inline, so the recipient sees what you see, and no
-  extension artefact is left in the message.
+  extension artefact is left in the message. While you write, rendered Markdown
+  keeps its source in a hidden attribute so the toggle can bring it back; it is
+  removed when the message is sent, but stays in saved drafts.
 - **Plain-text messages** are left alone.
 - **Remote images** written in Markdown keep their URL, like any image in a mail.
 
