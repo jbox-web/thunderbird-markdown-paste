@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Markdown Paste",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "Paste Markdown into a message as rich text, with native undo.",
   "homepage_url": "https://github.com/jbox-web/thunderbird-markdown-paste",
   "browser_specific_settings": {

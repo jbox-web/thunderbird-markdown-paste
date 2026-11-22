@@ -1,6 +1,6 @@
 {
   "name": "thunderbird-markdown-paste",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "description": "Paste Markdown into Thunderbird as rich text, with native undo.",
   "directories": {
     "test": "test"

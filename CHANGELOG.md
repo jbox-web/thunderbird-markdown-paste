@@ -5,6 +5,8 @@ GitHub release; `npm run release:bump -- X.Y.Z` dates the Unreleased section.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-22
+
 ### Changed
 
 - The toolbar button and Ctrl+Alt+M (Cmd+Alt+M on macOS), without a selection,
